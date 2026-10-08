@@ -5,24 +5,37 @@ echo          GIS DATA AUDITOR - INICIANDO APLICACION
 echo =======================================================
 echo.
 
-set "PYTHON_EXE=C:\Users\Nacho\miniconda3\python.exe"
+cd /d "%~dp0"
 
-if exist "%PYTHON_EXE%" (
-    echo Entorno de Python detectado en: %PYTHON_EXE%
-    echo Abriendo interfaz grafica en el navegador web local...
-    echo.
-    cd /d "%~dp0"
-    "%PYTHON_EXE%" -m streamlit run gis_data_auditor/ui/app_streamlit.py
-) else (
-    echo Entorno de Python principal no encontrado, buscando en el sistema...
-    cd /d "%~dp0"
+:: 1. Buscar si python de miniconda en la cuenta actual existe
+if exist "%USERPROFILE%\miniconda3\python.exe" (
+    echo Utilizando Python detectado en Miniconda...
+    "%USERPROFILE%\miniconda3\python.exe" -m streamlit run gis_data_auditor/ui/app_streamlit.py
+    goto END
+)
+
+:: 2. Buscar si Python de ArcGIS Pro existe
+if exist "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe" (
+    echo Utilizando Python detectado de ArcGIS Pro...
+    "C:\Program Files\ArcGIS\Pro\bin\Python\envs\arcgispro-py3\python.exe" -m streamlit run gis_data_auditor/ui/app_streamlit.py
+    goto END
+)
+
+:: 3. Intentar comando python por defecto del sistema (PATH)
+where python >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo Utilizando Python por defecto del sistema...
     python -m streamlit run gis_data_auditor/ui/app_streamlit.py
+    goto END
 )
 
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo =======================================================
-    echo ERROR: Ocurrio un problema al iniciar Streamlit.
-    echo =======================================================
-    pause
-)
+echo.
+echo ====================================================================
+echo ERROR: No se encontro una instalacion de Python con Streamlit.
+echo ====================================================================
+echo Por favor asegurese de instalar las dependencias necesarias:
+echo pip install streamlit fiona geopandas pandas openpyxl pydantic
+echo ====================================================================
+pause
+
+:END
