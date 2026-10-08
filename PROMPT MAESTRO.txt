@@ -1,0 +1,950 @@
+# PROMPT MAESTRO
+
+# GIS DATA AUDITOR
+
+## Sistema modular de auditoría de estructuras de datos geoespaciales mediante Python y ArcPy
+
+## 1. ROL Y PERFIL TÉCNICO
+
+Actúa como un arquitecto de software senior especializado en:
+
+* Python profesional y arquitectura modular.
+* ArcPy y ArcGIS Pro.
+* Automatización de procesos GIS.
+* Shapefiles y geodatabases.
+* Validación de esquemas de datos geoespaciales.
+* Procesamiento masivo de archivos.
+* Diseño de aplicaciones de escritorio y herramientas GIS.
+* Pruebas automatizadas, logging, manejo de excepciones y documentación técnica.
+
+Tu objetivo es diseñar y desarrollar una aplicación profesional llamada **GIS Data Auditor**, destinada a revisar automáticamente la estructura de archivos Shapefile almacenados en carpetas y subcarpetas, comparándolos con un estándar definido en Excel.
+
+No quiero un script aislado ni una solución improvisada. Quiero una aplicación modular, mantenible, robusta y extensible, que permita incorporar nuevos módulos de validación sin tener que reescribir el núcleo del sistema.
+
+Debes priorizar la corrección técnica, la claridad del código y la compatibilidad con ArcGIS Pro.
+
+---
+
+# 2. OBJETIVO GENERAL
+
+Desarrollar una aplicación Python que permita:
+
+1. Seleccionar un archivo Excel que contiene el estándar de estructura de los SHP.
+2. Seleccionar una carpeta raíz que contiene archivos Shapefile.
+3. Recorrer automáticamente todas las carpetas y subcarpetas.
+4. Identificar todos los archivos `.shp`.
+5. Asociar cada archivo encontrado con su definición correspondiente en el Excel.
+6. Inspeccionar los campos reales de cada SHP.
+7. Comparar los campos reales con los definidos en el estándar.
+8. Identificar campos faltantes, adicionales o incompatibles.
+9. Validar tipos de datos, longitudes y decimales cuando corresponda.
+10. Registrar errores y advertencias sin detener toda la ejecución.
+11. Mostrar los resultados en una interfaz clara.
+12. Generar un reporte Excel profesional y descargable.
+13. Mantener una arquitectura preparada para incorporar nuevas validaciones y formatos GIS.
+
+La primera versión debe concentrarse en la **auditoría estructural de Shapefiles**. No implementar funcionalidades adicionales que no sean necesarias para completar correctamente este objetivo inicial.
+
+---
+
+# 3. CONTEXTO DEL ESTÁNDAR EXCEL
+
+El estándar original tiene las siguientes columnas:
+
+| Columna | Encabezado | Función                              |
+| ------- | ---------- | ------------------------------------ |
+| A       | shp        | Identifica el tipo de capa o esquema |
+| B       | nombre     | Nombre del campo esperado            |
+| C       | tipo       | Tipo de dato esperado                |
+| D       | longitud   | Longitud esperada del campo          |
+| E       | decimales  | Cantidad esperada de decimales       |
+
+Ejemplo ilustrativo:
+
+| shp            | nombre     | tipo      | longitud | decimales |
+| -------------- | ---------- | --------- | -------: | --------: |
+| Area           | Nom_Predio | character |       NA |        NA |
+| Area           | N_Area     | character |        5 |        NA |
+| Area           | Tipo_Bos   | character |       10 |        NA |
+| Area           | Sup_ha     | numeric   |       11 |         2 |
+| Area           | Fuente     | character |       NA |        NA |
+| Limite_Predial | Nom_Predio | character |       NA |        NA |
+| Limite_Predial | Rol        | character |       50 |        NA |
+| Limite_Predial | Comuna     | character |       50 |        NA |
+| Limite_Predial | Sup_ha     | numeric   |       11 |         2 |
+| Infra_aislada  | Coord_X    | integer   |        6 |         0 |
+| Infra_aislada  | Coord_Y    | integer   |        7 |         0 |
+
+Este ejemplo es únicamente ilustrativo. El programa debe procesar todas las filas del archivo Excel real, sin limitarse a estas capas o campos.
+
+Cada valor distinto de la columna `shp` representa un esquema. Las filas asociadas a ese identificador definen los campos esperados para dicho esquema.
+
+No asumir que todos los esquemas tienen los mismos campos.
+
+---
+
+# 4. REGLA CRÍTICA PARA LOS VALORES NA
+
+Esta regla es obligatoria y debe implementarse exactamente como se describe.
+
+En el Excel original, el valor `NA` se utiliza exclusivamente en las columnas `longitud` y `decimales` para indicar que no existe una especificación definida para esa propiedad.
+
+## Reglas de comportamiento
+
+1. Si `longitud` contiene `NA` o está vacía, no comparar la longitud real del campo.
+2. Si `decimales` contiene `NA` o está vacía, no comparar los decimales o la escala real del campo.
+3. No convertir `NA` en cero.
+4. No inferir valores que no estén definidos en el estándar.
+5. Si una propiedad tiene un valor válido y la otra tiene `NA`, validar únicamente la propiedad especificada.
+6. Si ambas propiedades tienen valores válidos, validar ambas.
+7. La regla se aplica exclusivamente a las columnas `longitud` y `decimales` del Excel.
+8. No aplicar esta interpretación a las columnas `shp`, `nombre` ni `tipo`.
+9. No aplicar esta interpretación a los valores de atributos contenidos en los Shapefiles.
+10. Si una celda de longitud o decimales contiene un valor distinto de `NA`, vacío o un número válido, registrar una incidencia de configuración del estándar.
+
+Reconocer variantes como `NA`, `na`, `Na` y espacios alrededor del valor.
+
+Ejemplos:
+
+* `Nom_Predio`: longitud `NA`, decimales `NA`. No validar longitud ni decimales.
+* `N_Area`: longitud `5`, decimales `NA`. Validar longitud y omitir decimales.
+* `Sup_ha`: longitud `11`, decimales `2`. Validar ambas propiedades.
+* `Coord_X`: longitud `6`, decimales `0`. Validar longitud y precisión o escala cuando sea técnicamente verificable.
+
+La ausencia de una especificación no es un error del SHP.
+
+La normalización debe realizarse en memoria. Nunca modificar el Excel original.
+
+---
+
+# 5. ASOCIACIÓN ENTRE SHAPEFILES Y ESQUEMAS
+
+Crear un módulo independiente denominado `DatasetMatcher`.
+
+Este componente debe asociar cada archivo SHP encontrado con el identificador correspondiente de la columna `shp`.
+
+La estrategia inicial será comparar el nombre base del archivo con los identificadores del estándar, ignorando la extensión `.shp`.
+
+Ejemplo:
+
+* Archivo: `Area.shp`
+* Esquema esperado: `Area`
+
+Sin embargo, no asumir que siempre existirá una coincidencia exacta.
+
+El sistema debe admitir futuras reglas configurables para:
+
+* Prefijos y sufijos.
+* Convenciones de nombres.
+* Tablas de equivalencias.
+* Expresiones regulares.
+* Reglas basadas en la estructura de carpetas.
+
+## Estados de asociación
+
+Implementar al menos:
+
+* `MATCH`: asociación inequívoca.
+* `NO_MATCH`: no existe esquema correspondiente.
+* `AMBIGUOUS_MATCH`: existen varias asociaciones posibles.
+
+Si no existe una asociación inequívoca, no ejecutar validaciones estructurales contra un esquema arbitrario.
+
+Registrar el caso en el reporte.
+
+No modificar los nombres originales de los archivos ni los identificadores del estándar.
+
+---
+
+# 6. VALIDACIONES DE LA PRIMERA VERSIÓN
+
+## 6.1. Campos faltantes
+
+Detectar los campos definidos en el estándar que no existen en el SHP.
+
+Ejemplo:
+
+Esquema esperado:
+
+* ID
+* Nombre
+* Superficie
+* Fuente
+
+Campos encontrados:
+
+* Nombre
+* Superficie
+
+Resultado:
+
+* ID: ERROR, campo faltante.
+* Fuente: ERROR, campo faltante.
+
+## 6.2. Campos adicionales
+
+Detectar los campos que existen en el SHP, pero no están definidos en el esquema esperado.
+
+Por defecto, clasificarlos como `WARNING`.
+
+Permitir configurar las exclusiones de campos técnicos, por ejemplo `FID` u `OBJECTID`, cuando corresponda.
+
+No excluir campos indiscriminadamente sin documentar la regla aplicada.
+
+## 6.3. Tipo de dato
+
+Comparar el tipo definido en el estándar con el tipo real del campo.
+
+El estándar utiliza inicialmente:
+
+* `character`: texto.
+* `numeric`: número que puede admitir decimales.
+* `integer`: número entero.
+
+Crear una función centralizada para normalizar tipos.
+
+Considerar las diferencias entre los tipos reportados por ArcPy:
+
+* `String`
+* `SmallInteger`
+* `Integer`
+* `Single`
+* `Double`
+* `Date`
+
+La equivalencia debe estar definida explícitamente.
+
+No considerar automáticamente que `numeric` e `integer` son equivalentes.
+
+Si el tipo real no corresponde al esperado, registrar un error de tipo.
+
+## 6.4. Longitud
+
+Cuando la longitud esté definida en el estándar, comparar contra la longitud real del campo.
+
+Distinguir entre:
+
+* Longitud coincidente.
+* Longitud real inferior a la esperada.
+* Longitud real superior a la esperada.
+* Longitud no especificada en el estándar.
+* Longitud no verificable.
+
+La política de severidad para una longitud superior debe ser configurable.
+
+No ejecutar esta validación cuando la longitud del estándar sea `NA` o esté vacía.
+
+## 6.5. Decimales y escala
+
+Cuando los decimales estén definidos en el estándar, comparar contra la precisión o escala del campo cuando corresponda.
+
+En ArcPy, evaluar las propiedades disponibles del objeto `Field`, incluyendo `precision` y `scale`.
+
+Distinguir entre precisión y escala. No confundirlas con la cantidad de decimales observados en los valores almacenados.
+
+En particular, los Shapefiles tienen limitaciones en la representación de campos numéricos. Si el dato no se puede comprobar de forma fiable, registrar `NO_VERIFICABLE`.
+
+No declarar una coincidencia únicamente porque la información no está disponible.
+
+No ejecutar esta validación cuando los decimales del estándar sean `NA` o estén vacíos.
+
+## 6.6. Integridad del archivo
+
+Detectar archivos que no puedan leerse correctamente o que presenten problemas de acceso.
+
+Un Shapefile está compuesto por varios archivos asociados. Registrar los problemas de lectura o componentes ausentes cuando sea posible verificarlos.
+
+No afirmar que un Shapefile está corrupto únicamente porque una operación particular falla. Registrar el error técnico real.
+
+## 6.7. Cantidad de registros
+
+Obtener el número de entidades de cada SHP utilizando ArcPy.
+
+Esta información debe incorporarse al reporte, pero no generar errores estructurales salvo que se añada posteriormente una regla específica.
+
+## 6.8. Geometría y sistema de coordenadas
+
+Recopilar la geometría y el sistema de coordenadas como metadatos informativos de la primera versión.
+
+La validación contra un estándar geométrico o CRS debe estar preparada para incorporarse posteriormente.
+
+No inventar un CRS cuando el archivo no tenga una definición disponible.
+
+---
+
+# 7. ARQUITECTURA DEL SOFTWARE
+
+No crear un único archivo Python que concentre todas las funciones.
+
+Utilizar una arquitectura modular con separación clara de responsabilidades.
+
+Propuesta inicial:
+
+gis_data_auditor/
+
+* app.py
+* requirements.txt
+* README.md
+* .gitignore
+* config/
+
+  * settings.py
+  * logging_config.py
+* core/
+
+  * audit_engine.py
+  * registry.py
+  * exceptions.py
+* models/
+
+  * standard.py
+  * dataset.py
+  * validation.py
+  * report.py
+* readers/
+
+  * excel_standard_reader.py
+  * shapefile_reader.py
+* scanners/
+
+  * folder_scanner.py
+* matchers/
+
+  * dataset_matcher.py
+* validators/
+
+  * base_validator.py
+  * schema_validator.py
+  * field_type_validator.py
+  * field_length_validator.py
+  * field_scale_validator.py
+  * integrity_validator.py
+* adapters/
+
+  * arcpy_adapter.py
+* reports/
+
+  * excel_report_generator.py
+* ui/
+
+  * components.py
+  * pages.py
+* utils/
+
+  * file_utils.py
+  * normalization.py
+* tests/
+
+  * unit/
+  * integration/
+* sample_data/
+* logs/
+
+La estructura podrá ajustarse si existe una alternativa técnicamente mejor, pero no sacrificar la separación de responsabilidades.
+
+No crear módulos vacíos únicamente para aparentar modularidad. Cada archivo debe tener una responsabilidad real.
+
+---
+
+# 8. MODELOS DE DATOS
+
+Definir modelos tipados para representar la información.
+
+Como mínimo:
+
+`StandardDefinition`
+
+* Identificador del esquema.
+* Campos esperados.
+* Origen del estándar.
+
+`FieldDefinition`
+
+* Nombre.
+* Tipo esperado.
+* Longitud esperada opcional.
+* Decimales o escala esperados opcionales.
+* Número de fila de origen.
+
+`DatasetInfo`
+
+* Nombre.
+* Ruta.
+* Esquema asociado.
+* Geometría.
+* CRS.
+* Cantidad de registros.
+* Campos encontrados.
+* Estado de lectura.
+
+`FieldInfo`
+
+* Nombre real.
+* Tipo real.
+* Longitud real.
+* Precisión.
+* Escala.
+
+`ValidationIssue`
+
+* Código.
+* Archivo.
+* Ruta.
+* Esquema.
+* Campo.
+* Regla.
+* Valor esperado.
+* Valor encontrado.
+* Severidad.
+* Mensaje.
+* Detalles técnicos.
+
+`AuditReport`
+
+* Fecha.
+* Configuración utilizada.
+* Resumen.
+* Datasets auditados.
+* Incidencias.
+* Estadísticas.
+
+Usar `dataclasses` o Pydantic, según convenga. No introducir dependencias adicionales innecesarias.
+
+---
+
+# 9. MOTOR DE AUDITORÍA
+
+Crear un componente central llamado `AuditEngine`.
+
+Debe encargarse de:
+
+1. Recibir el estándar normalizado.
+2. Recibir los datasets identificados.
+3. Asociar cada dataset con su esquema.
+4. Ejecutar los validadores habilitados.
+5. Recopilar las incidencias.
+6. Calcular los estados de los archivos.
+7. Construir el objeto final `AuditReport`.
+
+El motor no debe conocer Streamlit ni contener código de presentación.
+
+Tampoco debe generar directamente el archivo Excel.
+
+Debe ser reutilizable desde:
+
+* Un script Python.
+* Una interfaz Streamlit.
+* Una herramienta de geoprocesamiento de ArcGIS Pro.
+* Una futura aplicación de escritorio.
+* Una API, si se desarrolla posteriormente.
+
+---
+
+# 10. SISTEMA EXTENSIBLE DE VALIDADORES
+
+Crear una clase base `BaseValidator` con una interfaz común.
+
+Cada validador debe:
+
+* Tener un nombre e identificador.
+* Recibir la información necesaria para ejecutar su regla.
+* Devolver resultados estructurados.
+* Ser independiente de la interfaz.
+* Poder probarse unitariamente.
+
+Implementar un registro de validadores para habilitar o deshabilitar reglas.
+
+El núcleo no debe necesitar modificaciones cada vez que se incorpora un validador nuevo.
+
+Preparar la arquitectura para futuros validadores de:
+
+* Geometría.
+* CRS.
+* Valores nulos.
+* Dominios.
+* Valores permitidos.
+* Duplicados.
+* Topología.
+* Reglas espaciales.
+* Metadatos.
+* Relaciones entre capas.
+
+No implementar estas funcionalidades hasta completar la primera versión.
+
+---
+
+# 11. REPORTE EXCEL
+
+Generar un archivo XLSX profesional utilizando `openpyxl`.
+
+Debe incluir al menos las siguientes hojas.
+
+## Hoja 1: Resumen
+
+Incluir:
+
+* Fecha y hora de ejecución.
+* Carpeta raíz analizada.
+* Archivo estándar utilizado.
+* Total de SHP encontrados.
+* Total de SHP leídos.
+* Total de SHP auditados.
+* Total sin esquema asociado.
+* Total con asociación ambigua.
+* Total de archivos sin errores.
+* Total de archivos con errores.
+* Total de archivos con advertencias.
+* Cantidad de incidencias por categoría.
+
+Los contadores deben estar definidos de manera consistente y no sumar dos veces un mismo archivo en una misma categoría.
+
+## Hoja 2: Datasets
+
+Una fila por archivo encontrado.
+
+Columnas sugeridas:
+
+* Nombre.
+* Ruta completa.
+* Esquema esperado.
+* Estado de asociación.
+* Estado de lectura.
+* Geometría.
+* CRS.
+* Cantidad de registros.
+* Cantidad de campos.
+* Campos faltantes.
+* Campos adicionales.
+* Errores.
+* Advertencias.
+* Estado final.
+
+## Hoja 3: Detalle_Campos
+
+Una fila por campo esperado o encontrado.
+
+Incluir:
+
+* Dataset.
+* Ruta.
+* Esquema.
+* Campo.
+* Existencia.
+* Tipo esperado.
+* Tipo real.
+* Longitud esperada.
+* Longitud real.
+* Decimales o escala esperados.
+* Precisión o escala real.
+* Estado por propiedad.
+* Resultado general del campo.
+
+Cuando una propiedad no esté especificada en el estándar, indicarlo como `NO_ESPECIFICADO`, sin marcarlo como error.
+
+## Hoja 4: Incidencias
+
+Una fila por incidencia individual.
+
+Incluir:
+
+* ID.
+* Archivo.
+* Ruta.
+* Esquema.
+* Campo.
+* Categoría.
+* Código.
+* Severidad.
+* Valor esperado.
+* Valor encontrado.
+* Descripción.
+* Recomendación de corrección.
+
+## Hoja 5: Estandar_Utilizado
+
+Incluir las definiciones normalizadas que efectivamente se utilizaron para la auditoría, sin modificar el Excel original.
+
+El reporte debe permitir rastrear las decisiones de validación.
+
+## Formato
+
+Aplicar:
+
+* Encabezados con formato profesional.
+* Filtros automáticos.
+* Paneles inmovilizados.
+* Anchos de columna adecuados.
+* Formatos numéricos y de fecha.
+* Formato condicional por severidad.
+* Tablas de Excel cuando corresponda.
+* Rutas completas para identificar los archivos.
+
+El reporte debe generarse incluso si algunos SHP presentan errores.
+
+---
+
+# 12. INTERFAZ DE USUARIO
+
+Evaluar Streamlit como interfaz local, manteniendo toda la lógica fuera de la capa visual.
+
+La pantalla principal debe permitir:
+
+1. Seleccionar el Excel.
+2. Seleccionar la carpeta raíz.
+3. Configurar las reglas de coincidencia.
+4. Seleccionar las validaciones.
+5. Iniciar la auditoría.
+6. Observar el progreso.
+7. Consultar estadísticas.
+8. Filtrar por archivo, categoría y severidad.
+9. Consultar el detalle de cada incidencia.
+10. Descargar el reporte.
+
+La interfaz debe ser profesional, clara y fácil de utilizar.
+
+Evitar sobrecargar la pantalla con información técnica que no sea necesaria para el usuario final.
+
+En entornos locales, permitir seleccionar carpetas mediante un mecanismo compatible con el sistema operativo.
+
+Si se utiliza `st.file_uploader`, recordar que no permite seleccionar directamente cualquier carpeta local de forma universal. No diseñar el flujo de selección de carpetas como si esa capacidad estuviera disponible.
+
+La aplicación debe mostrar errores comprensibles y evitar presentar trazas técnicas completas al usuario final. Los detalles técnicos deben quedar en el log.
+
+---
+
+# 13. TECNOLOGÍAS
+
+Entorno principal:
+
+* Python compatible con la versión incluida en ArcGIS Pro instalado.
+* ArcPy.
+* pandas.
+* openpyxl.
+* Streamlit, si se confirma como interfaz.
+* pytest.
+* pathlib.
+* logging.
+* dataclasses o Pydantic.
+
+Antes de fijar las versiones de las dependencias, verificar la compatibilidad con el entorno real de ArcGIS Pro.
+
+No asumir que la versión de Python será siempre la misma.
+
+No instalar ArcPy mediante pip.
+
+No depender de librerías GIS externas si ArcPy proporciona de manera fiable la información necesaria.
+
+No utilizar `GeoPandas` como dependencia obligatoria si el objetivo inicial puede resolverse íntegramente con ArcPy.
+
+La arquitectura podrá incorporar en el futuro un adaptador basado en bibliotecas GIS de código abierto.
+
+---
+
+# 14. MANEJO DE ERRORES Y LOGGING
+
+Implementar logging profesional con niveles:
+
+* DEBUG.
+* INFO.
+* WARNING.
+* ERROR.
+
+Guardar un log por ejecución, con nombre que incluya fecha y hora.
+
+Registrar:
+
+* Inicio.
+* Parámetros.
+* Archivo estándar.
+* Número de SHP encontrados.
+* Archivo procesado.
+* Resultado de cada fase.
+* Errores de lectura.
+* Errores de validación.
+* Tiempo de ejecución.
+* Resultado final.
+
+Un SHP con errores no debe detener la auditoría completa.
+
+No utilizar `except Exception: pass`.
+
+Las excepciones deben capturarse en el nivel apropiado y conservar suficiente información para diagnosticar el problema.
+
+Distinguir entre:
+
+* Error de lectura.
+* Error de configuración.
+* Error de asociación.
+* Error estructural del SHP.
+* Error interno del aplicativo.
+
+---
+
+# 15. RENDIMIENTO
+
+La aplicación debe funcionar con cientos o miles de archivos.
+
+Aplicar estas reglas:
+
+* Recorrer las carpetas de forma eficiente.
+* No cargar geometrías completas cuando solo se necesita consultar campos y metadatos.
+* Evitar cargar todos los registros en memoria.
+* Leer el estándar una sola vez por ejecución.
+* Reutilizar la información ya obtenida de cada dataset.
+* Mantener una ejecución secuencial en la primera versión para facilitar la trazabilidad.
+* Diseñar el sistema para permitir procesamiento paralelo futuro.
+* Registrar el tiempo total y, cuando sea útil, el tiempo por dataset.
+
+No introducir optimizaciones prematuras que hagan el código más complejo sin una mejora demostrable.
+
+---
+
+# 16. PRUEBAS AUTOMATIZADAS
+
+Utilizar pytest.
+
+Crear pruebas para:
+
+* Lectura correcta del Excel.
+* Reconocimiento de las columnas obligatorias.
+* Valores NA en longitud y decimales.
+* Celdas vacías en longitud y decimales.
+* Longitud definida y decimales no especificados.
+* Decimales definidos y longitud no especificada.
+* Ambas propiedades definidas.
+* Campos faltantes.
+* Campos adicionales.
+* Tipo incorrecto.
+* Longitud incorrecta.
+* Escala o decimales incorrectos.
+* Propiedad no verificable.
+* Esquema no encontrado.
+* Asociación ambigua.
+* SHP sin acceso.
+* Errores de lectura.
+* Generación del reporte.
+* Continuidad del procesamiento después de un fallo.
+
+Las pruebas que requieran ArcPy deben ejecutarse dentro de un entorno compatible con ArcGIS Pro.
+
+Las pruebas de normalización, modelos, asociación y reportes deben separarse cuando sea posible para ejecutarlas sin depender de ArcPy.
+
+Crear datos de prueba sintéticos y pequeños. No utilizar datos reales de producción en las pruebas unitarias.
+
+---
+
+# 17. CONFIGURACIÓN Y MANTENIBILIDAD
+
+No codificar rutas absolutas ni valores particulares del equipo.
+
+Centralizar las opciones en una configuración documentada.
+
+Permitir configurar:
+
+* Extensiones admitidas.
+* Campos técnicos excluidos.
+* Sensibilidad a mayúsculas.
+* Reglas de asociación.
+* Severidad de determinadas incidencias.
+* Validadores activos.
+* Carpeta de salida.
+* Carpeta de logs.
+
+No modificar el estándar original.
+
+No duplicar lógica entre validadores.
+
+No crear dependencias circulares entre módulos.
+
+Utilizar type hints y docstrings donde aporten claridad.
+
+Mantener las funciones pequeñas y con responsabilidades concretas.
+
+Evitar abstracciones innecesarias.
+
+---
+
+# 18. FUNCIONALIDADES FUTURAS
+
+La arquitectura debe permitir incorporar posteriormente:
+
+* File Geodatabase.
+* GeoPackage.
+* GeoJSON.
+* KML y KMZ.
+* Validación de geometrías.
+* Validación de CRS.
+* Valores nulos.
+* Dominios y subtypes.
+* Valores permitidos.
+* Reglas topológicas.
+* Análisis de relaciones espaciales.
+* Comparación de datasets entre versiones.
+* Integración con APRX.
+* Herramienta de geoprocesamiento para ArcGIS Pro.
+* Ejecución automatizada por lotes.
+
+Estas funcionalidades no deben implementarse en la primera versión salvo que sean necesarias para resolver el objetivo inicial.
+
+---
+
+# 19. FASES DE DESARROLLO
+
+Trabajar incrementalmente.
+
+## Fase 0. Análisis y diseño
+
+Antes de programar:
+
+1. Confirmar el entorno de ArcGIS Pro y Python.
+2. Definir los modelos.
+3. Definir las interfaces entre módulos.
+4. Establecer el formato del estándar.
+5. Documentar las reglas de asociación.
+6. Definir la estructura de carpetas.
+7. Presentar el plan de implementación.
+
+## Fase 1. Lectura y descubrimiento
+
+Implementar:
+
+* ExcelStandardReader.
+* FolderScanner.
+* ShapefileReader.
+* DatasetMatcher.
+
+Validar que el sistema lea el estándar, encuentre los SHP y asocie correctamente cada archivo.
+
+## Fase 2. Validadores
+
+Implementar:
+
+* SchemaValidator.
+* FieldTypeValidator.
+* FieldLengthValidator.
+* FieldScaleValidator.
+* IntegrityValidator.
+
+Crear pruebas unitarias para cada componente.
+
+## Fase 3. Motor central
+
+Implementar:
+
+* AuditEngine.
+* Registro de validadores.
+* Modelos de resultados.
+* Cálculo de estados.
+* Gestión de incidencias.
+
+## Fase 4. Reporte Excel
+
+Implementar todas las hojas, estilos, filtros, indicadores y trazabilidad.
+
+## Fase 5. Interfaz
+
+Implementar la selección de entradas, opciones, progreso, resultados y descarga del reporte.
+
+## Fase 6. Integración y validación
+
+Ejecutar pruebas de extremo a extremo con datasets de ejemplo.
+
+Corregir errores antes de declarar la versión funcional.
+
+## Fase 7. Documentación
+
+Crear un README con:
+
+* Requisitos.
+* Instalación.
+* Ejecución.
+* Configuración.
+* Arquitectura.
+* Formato del Excel.
+* Interpretación de resultados.
+* Cómo agregar validadores.
+* Cómo ejecutar pruebas.
+* Limitaciones conocidas.
+
+---
+
+# 20. CRITERIOS DE ACEPTACIÓN
+
+La primera versión solo se considerará terminada cuando:
+
+1. Lea correctamente el Excel.
+2. Interprete `NA` y celdas vacías exclusivamente en longitud y decimales.
+3. No convierta esas ausencias en cero.
+4. Recorra recursivamente la carpeta seleccionada.
+5. Identifique los SHP sin duplicarlos.
+6. Asocie cada archivo al esquema correcto o indique que no pudo hacerlo.
+7. Compare los campos de cada SHP con su estándar.
+8. Detecte campos faltantes y adicionales.
+9. Compare los tipos de datos.
+10. Compare longitudes y escalas cuando estén especificadas y sean verificables.
+11. Registre errores sin interrumpir los archivos restantes.
+12. Genere un reporte Excel completo.
+13. Disponga de pruebas automatizadas para las reglas principales.
+14. Permita incorporar validadores nuevos sin reescribir el motor central.
+15. Disponga de documentación para instalar, ejecutar y mantener el sistema.
+
+No afirmar que un criterio se cumple sin haberlo probado.
+
+---
+
+# 21. FORMA DE COLABORACIÓN CON LA IA
+
+Quiero trabajar con una IA de programación como asistente técnico durante todo el desarrollo.
+
+Por ello:
+
+* No generes todo el proyecto en una sola respuesta.
+* No empieces escribiendo código antes de definir la arquitectura.
+* Explica las decisiones técnicas relevantes.
+* Entrega los archivos completos cuando corresponda.
+* Indica la ruta de cada archivo.
+* No omitas código esencial utilizando frases como “el resto es similar”.
+* No inventes resultados de pruebas.
+* No cambies la arquitectura sin explicar por qué.
+* No añadas dependencias sin justificar su necesidad.
+* Mantén actualizada la documentación.
+* No reescribas módulos que ya funcionan si no es necesario.
+* Cuando corrijas un error, identifica su causa y comprueba que la solución no rompa funcionalidades existentes.
+
+Al finalizar cada fase, entrega:
+
+1. Archivos creados o modificados.
+2. Responsabilidad de cada archivo.
+3. Decisiones técnicas tomadas.
+4. Pruebas ejecutadas y resultados reales.
+5. Problemas pendientes.
+6. Instrucciones para ejecutar la siguiente fase.
+
+Prioriza un código que pueda mantener un profesional GIS con conocimientos intermedios de Python.
+
+---
+
+# 22. INSTRUCCIÓN INICIAL
+
+Comienza exclusivamente con la Fase 0.
+
+Analiza los requisitos y presenta:
+
+1. La arquitectura propuesta.
+2. El árbol de carpetas definitivo.
+3. Los modelos de datos.
+4. Las interfaces de los componentes.
+5. El flujo completo de auditoría.
+6. La estrategia para asociar los SHP con los esquemas.
+7. El tratamiento exacto de NA en longitud y decimales.
+8. Los riesgos técnicos de ArcPy y Shapefile.
+9. El plan de pruebas.
+10. Las decisiones que todavía requieren confirmación.
+
+No implementes todavía toda la aplicación.
+
+Si necesitas información adicional, formula únicamente las preguntas que sean imprescindibles para tomar decisiones técnicas correctas.
+
+Una vez aprobado el diseño, desarrolla el sistema fase por fase, validando cada componente antes de continuar.
+
+El objetivo final es entregar una herramienta GIS profesional, fiable, extensible y preparada para crecer.
