@@ -15,6 +15,17 @@ from gis_data_auditor.models.validation import Severity
 from gis_data_auditor.reports.excel_report_generator import ExcelReportGenerator
 
 
+def safe_display_df(df: pd.DataFrame):
+    """
+    Muestra un DataFrame en Streamlit de forma segura.
+    Si PyArrow falla (común en entornos de ArcGIS Pro por falta de DLLs), utiliza st.table como fallback.
+    """
+    try:
+        st.dataframe(df, use_container_width=True)
+    except Exception:
+        st.table(df)
+
+
 def main():
     st.set_page_config(
         page_title="GIS Data Auditor",
@@ -159,7 +170,7 @@ def main():
                     (df_issues["Categoría"].isin(filter_cat))
                 ]
 
-                st.dataframe(df_filtered, use_container_width=True)
+                safe_display_df(df_filtered)
 
         with tab_datasets:
             datasets_data = []
@@ -175,7 +186,7 @@ def main():
                     "Ruta": str(ds.filepath)
                 })
             df_ds = pd.DataFrame(datasets_data)
-            st.dataframe(df_ds, use_container_width=True)
+            safe_display_df(df_ds)
 
 
 if __name__ == "__main__":
