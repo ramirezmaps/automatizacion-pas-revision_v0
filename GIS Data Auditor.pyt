@@ -4,17 +4,19 @@ Caja de Herramientas de Python (Python Toolbox) para ArcGIS Pro.
 Permite ejecutar GIS Data Auditor nativamente en ArcGIS Pro.
 """
 
-import sys
 import os
-from pathlib import Path
+import sys
+
+# Requerido por ArcGIS Pro para reconocer la toolbox .pyt
+try:
+    import arcpy
+except ImportError:
+    pass
 
 # Agregar carpeta del proyecto al PYTHONPATH
 toolbox_dir = os.path.dirname(os.path.abspath(__file__))
 if toolbox_dir not in sys.path:
     sys.path.insert(0, toolbox_dir)
-
-from gis_data_auditor.core.audit_engine import AuditEngine
-from gis_data_auditor.reports.excel_report_generator import ExcelReportGenerator
 
 
 class Toolbox(object):
@@ -28,14 +30,11 @@ class GISDataAuditorTool(object):
     def __init__(self):
         self.label = "Auditar Estructura de Shapefiles"
         self.description = (
-            "Audita recursivamente la estructura de archivos Shapefile en una carpeta "
-            "comparándolos contra un estándar definido en Excel."
+            "Audita la estructura de archivos Shapefile comparándolos con un estándar Excel."
         )
         self.canRunInBackground = False
 
     def getParameterInfo(self):
-        import arcpy
-
         # Param 0: Estándar Excel
         param_excel = arcpy.Parameter(
             displayName="Archivo Excel con el Estándar",
@@ -62,7 +61,6 @@ class GISDataAuditorTool(object):
             parameterType="Required",
             direction="Output"
         )
-        param_output.filter.list = ["xlsx"]
 
         return [param_excel, param_folder, param_output]
 
@@ -76,7 +74,8 @@ class GISDataAuditorTool(object):
         return
 
     def execute(self, parameters, messages):
-        import arcpy
+        from gis_data_auditor.core.audit_engine import AuditEngine
+        from gis_data_auditor.reports.excel_report_generator import ExcelReportGenerator
 
         excel_path = parameters[0].valueAsText
         target_folder = parameters[1].valueAsText
@@ -99,7 +98,7 @@ class GISDataAuditorTool(object):
         generator = ExcelReportGenerator()
         final_file = generator.generate_report(report, output_report_path)
 
-        arcpy.AddMessage(f"Auditoría completada exitosamente.")
+        arcpy.AddMessage("Auditoría completada exitosamente.")
         arcpy.AddMessage(f"Total SHPs auditados: {report.total_shps_audited}")
         arcpy.AddMessage(f"Archivos Conformes: {report.total_clean_files}")
         arcpy.AddMessage(f"Archivos con Errores: {report.total_files_with_errors}")
