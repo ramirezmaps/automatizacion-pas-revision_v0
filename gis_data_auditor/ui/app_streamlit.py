@@ -85,7 +85,8 @@ def main():
             progress_bar.progress(pct)
             status_text.text(f"Auditando [{current}/{total}]: {msg}")
 
-        engine = AuditEngine(force_fiona=True)
+        # Usar selección automática del lector (ArcPy si está en ArcGIS Pro, o Fiona si es Python independiente)
+        engine = AuditEngine(force_fiona=False)
         try:
             report = engine.run_audit(
                 excel_path=final_excel_path,
