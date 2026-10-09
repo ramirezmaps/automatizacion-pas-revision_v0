@@ -1,50 +1,27 @@
 # -*- coding: utf-8 -*-
-"""
-Caja de Herramientas de Python (Python Toolbox) para ArcGIS Pro.
-Permite ejecutar GIS Data Auditor nativamente en ArcGIS Pro.
-"""
-
-import os
-import sys
-
-# Requerido por ArcGIS Pro para reconocer la toolbox .pyt
-try:
-    import arcpy
-except ImportError:
-    pass
-
-# Agregar carpeta del proyecto al PYTHONPATH
-toolbox_dir = os.path.dirname(os.path.abspath(__file__))
-if toolbox_dir not in sys.path:
-    sys.path.insert(0, toolbox_dir)
-
-
-class Toolbox(object):
-    def __init__(self):
-        self.label = "GIS Data Auditor Toolbox"
-        self.alias = "gis_auditor"
-        self.tools = [GISDataAuditorTool]
+import arcpy
 
 
 class GISDataAuditorTool(object):
     def __init__(self):
+        """Define la herramienta de auditoría de datos GIS."""
         self.label = "Auditar Estructura de Shapefiles"
         self.description = (
-            "Audita la estructura de archivos Shapefile comparándolos con un estándar Excel."
+            "Audita recursivamente la estructura de archivos Shapefile "
+            "comparándolos contra un estándar definido en Excel."
         )
         self.canRunInBackground = False
 
     def getParameterInfo(self):
-        # Param 0: Estándar Excel
+        """Define los parámetros de entrada y salida de la herramienta."""
         param_excel = arcpy.Parameter(
-            displayName="Archivo Excel con el Estándar",
+            displayName="Archivo Excel con el Estándar (.xlsx)",
             name="excel_file",
             datatype="DEFile",
             parameterType="Required",
             direction="Input"
         )
 
-        # Param 1: Carpeta Raíz de SHPs
         param_folder = arcpy.Parameter(
             displayName="Carpeta Raíz a Auditar",
             name="target_folder",
@@ -53,7 +30,6 @@ class GISDataAuditorTool(object):
             direction="Input"
         )
 
-        # Param 2: Archivo de Salida Excel
         param_output = arcpy.Parameter(
             displayName="Reporte Excel de Salida (.xlsx)",
             name="output_report",
@@ -65,15 +41,26 @@ class GISDataAuditorTool(object):
         return [param_excel, param_folder, param_output]
 
     def isLicensed(self):
+        """Indica si la herramienta está licendida para ejecutarse."""
         return True
 
     def updateParameters(self, parameters):
+        """Modifica los valores de parámetros antes de la validación interna."""
         return
 
     def updateMessages(self, parameters):
+        """Modifica los mensajes generados por la validación interna."""
         return
 
     def execute(self, parameters, messages):
+        """Código fuente principal de la herramienta."""
+        import os
+        import sys
+
+        toolbox_dir = os.path.dirname(os.path.abspath(__file__))
+        if toolbox_dir not in sys.path:
+            sys.path.insert(0, toolbox_dir)
+
         from gis_data_auditor.core.audit_engine import AuditEngine
         from gis_data_auditor.reports.excel_report_generator import ExcelReportGenerator
 
@@ -81,7 +68,7 @@ class GISDataAuditorTool(object):
         target_folder = parameters[1].valueAsText
         output_report_path = parameters[2].valueAsText
 
-        arcpy.AddMessage(f"Iniciando auditoría GIS Data Auditor...")
+        arcpy.AddMessage("Iniciando auditoría GIS Data Auditor...")
         arcpy.AddMessage(f"Estándar: {excel_path}")
         arcpy.AddMessage(f"Carpeta: {target_folder}")
 
@@ -106,3 +93,11 @@ class GISDataAuditorTool(object):
         arcpy.AddMessage(f"Reporte generado en: {final_file}")
 
         return
+
+
+class Toolbox(object):
+    def __init__(self):
+        """Define la caja de herramientas."""
+        self.label = "GIS Data Auditor Toolbox"
+        self.alias = "gis_auditor"
+        self.tools = [GISDataAuditorTool]
