@@ -1,10 +1,11 @@
 """
-Lector central de Shapefiles con selección dinámica del adaptador adecuado (ArcPy o Fiona).
-No importa ninguna librería GIS a nivel superior para prevenir errores de importación.
+Lector central de Shapefiles con selección dinámica y tolerante a fallos del adaptador GIS.
+Prioriza ArcPy en ArcGIS Pro, Fiona en entornos compatibles y PurePythonAdapter como fallback infalible.
 """
 
 import logging
 from pathlib import Path
+
 from gis_data_auditor.adapters.base_adapter import IShapefileAdapter
 from gis_data_auditor.models.dataset import DatasetInfo
 
@@ -12,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 
 class ShapefileReader:
-    """Clase principal para leer información de Shapefiles adaptándose al entorno disponible."""
+    """Clase principal para leer información de Shapefiles adaptándose a cualquier entorno."""
 
     def __init__(self, force_fiona: bool = False):
         self.adapter: IShapefileAdapter = self._select_adapter(force_fiona)
 
     def _select_adapter(self, force_fiona: bool) -> IShapefileAdapter:
-        # 1. Intentar ArcPy primero si no se forzó explícitamente Fiona
+        # 1. Intentar ArcPy primero si se ejecuta dentro de ArcGIS Pro
         if not force_fiona:
             try:
                 from gis_data_auditor.adapters.arcpy_adapter import ArcPyAdapter
@@ -28,28 +29,19 @@ class ShapefileReader:
             except Exception as e:
                 logger.info(f"ArcPy no disponible ({e}). Intentando con FionaAdapter...")
 
-        # 2. Intentar FionaAdapter si ArcPy no está o si se forzó Fiona
+        # 2. Intentar FionaAdapter si ArcPy no está o si se solicitó Fiona
         try:
             from gis_data_auditor.adapters.fiona_adapter import FionaAdapter
             adapter = FionaAdapter()
-            logger.info("Utilizando el adaptador independiente FionaAdapter.")
+            logger.info("Utilizando el adaptador FionaAdapter.")
             return adapter
         except Exception as e_fiona:
-            logger.info(f"FionaAdapter no pudo ser cargado: {e_fiona}")
+            logger.info(f"FionaAdapter no pudo ser cargado ({e_fiona}). Usando PurePythonAdapter infalible...")
 
-        # 3. Fallback de emergencia a ArcPy si Fiona falló pero no se había intentado
-        if force_fiona:
-            try:
-                from gis_data_auditor.adapters.arcpy_adapter import ArcPyAdapter
-                adapter = ArcPyAdapter()
-                logger.info("Fallback exitoso a ArcPyAdapter tras fallo de Fiona.")
-                return adapter
-            except Exception as e_arcpy:
-                raise ImportError(
-                    f"No se pudo cargar ningún lector GIS. Fiona falló ({e_fiona}) y ArcPy falló ({e_arcpy})."
-                ) from e_arcpy
-
-        raise ImportError(f"No se pudo cargar la librería de lectura GIS (ArcPy / Fiona).")
+        # 3. Fallback infalible: PurePythonAdapter (Python puro, cero dependencias C/DLLs)
+        from gis_data_auditor.adapters.pure_python_adapter import PurePythonAdapter
+        logger.info("Utilizando el adaptador independiente PurePythonAdapter (cero dependencias externas).")
+        return PurePythonAdapter()
 
     def read_dataset(self, filepath: Path) -> DatasetInfo:
         """Inspecciona el Shapefile utilizando el adaptador configurado."""
